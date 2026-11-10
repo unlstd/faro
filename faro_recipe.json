@@ -1,0 +1,16 @@
+{
+    "name": "faro",
+    "version": "0.0.1",
+    "description": "A lightweight package manager for MLFS",
+    "dependencies": [
+        "glibc",
+        "gcc",
+        "libarchive"
+    ],
+    "build": [
+        ["make", "-j4"]
+    ],
+    "install": [
+        ["make", "install"]
+    ]
+}

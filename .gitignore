@@ -1,0 +1,21 @@
+# Compiled binaries
+/faro
+*.o
+
+# Build directories
+/build/
+/dist/
+
+# Temporary files
+*.tmp
+*.log
+core
+core.*
+
+# IDE files
+.vscode/
+.idea/
+
+# Generated package archives
+*.tar.xz
+EOF
