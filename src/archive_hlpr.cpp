@@ -207,8 +207,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
   std::filesystem::path base(path);
   if (!std::filesystem::is_directory(base)) {
     std::cerr << "[FAILED] Not a directory: " << path << "\n";
-    result = 1;
-    return result;
+    return 1;
   }
 
   // Setup output archive: tar format, compressed with xz (.tar.xz)
@@ -224,7 +223,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
     std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
     archive_write_free(a);
     archive_read_free(disk);
-    result = 1;
+    return 1;
   }
 
   entry = archive_entry_new();
