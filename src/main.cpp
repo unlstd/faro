@@ -156,6 +156,16 @@ namespace faro::cli {
         return faro::list_packages();
     }
 
+    int info(const std::string& path) {
+        faro::Package package = faro::get_package(path);
+
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+        return faro::package_info(package);
+    }
+
     int run(const std::vector<std::string>& args) {
         if (args.empty()) {
             print_help();
@@ -179,7 +189,7 @@ namespace faro::cli {
         }
 
         if (command == "build" || command == "install" || command == "build-install" ||
-            command == "remove") {
+            command == "remove" || command == "info") {
             if (args.size() != 2) { 
                 faro::log::error("Invalid number of arguments for command '" + command + "'.");
                 std::cout << "\n";
@@ -192,8 +202,10 @@ namespace faro::cli {
                 return install(args[1]);
             } else if (command == "build-install") {
                 return build_install(args[1]);
+            } else if (command == "remove") {
+                return remove(args[1]);
             }
-            return remove(args[1]);
+            return info(args[1]);
         }
         
         faro::log::error("Unknown command: " + command);

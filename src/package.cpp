@@ -64,6 +64,7 @@ faro::Package faro::get_package(std::string path){
     package.built = true;
     package.dependencies = metadata["dependencies"];
     package.libs = metadata["libs"];
+    package.files = metadata["files"];
     
   } else if (faro::archive::find_element(real_path, faro_recipe) != 0){
     faro::log::error("Archive is not a faro package.");
@@ -516,6 +517,39 @@ int faro::list_packages() {
   }
   
   std::cout << "\nA total of " + std::to_string(packages_count) << " packages installed \n";
+  return 0;
+}
+
+int faro::package_info(Package& package) {
+  std::cout << "Package information: \n\n";
+  std::cout << std::left
+        << std::setw(15) << "Name: " << package.name << "\n"
+        << std::setw(15) << "Version: " << package.version << "\n"
+        << std::setw(15) << "Description: " << package.description
+        << "\n\n";
+  std::cout << "Dependencies:\n";
+  for (const auto& depen : package.dependencies) {
+    std::cout << " -  " << depen << "\n";
+  }
+  std::cout << "\n";
+
+  std::cout << "Shared libraries:\n";
+  for (const auto& lib : package.libs) {
+    std::cout << " -  " << lib << "\n";
+  }
+  std::cout << "\n";
+
+  std::cout << "Installed files:\n";
+  for (const auto& file : package.files) {
+    std::cout << " -  " << file << "\n";
+  }
+  std::cout << "\n";
+
+  std::cout << "Archive:\n";
+  std::cout << "  " << package.archive_path << "\n\n";
+
+  std::cout << "Status:\n" << package.built << "\n";
+  
   return 0;
 }
 
