@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include <unistd.h>
+#include <unordered_set>
 #include "logger.hpp"
 
 const std::string FARO_CACHE = "/var/faro/cache/";
@@ -338,6 +339,141 @@ int faro::install_package(Package &package) {
   std::filesystem::remove_all(temp_path);
   return 0;
 
+}
+
+// This function has been stolen from archive_hlpr.cpp
+static std::filesystem::path sanitize_path(const std::filesystem::path& base, const std::filesystem::path& entry) {
+    if (entry.is_absolute() || entry.has_root_name())
+        throw std::runtime_error("[FAILED] Absolute archive path rejected");
+
+    auto normalized = entry.lexically_normal();
+
+    for (const auto& component : normalized) {
+        if (component == "..")
+            throw std::runtime_error("[FAILED] Archive path traversal rejected");
+    }
+
+    return (base / normalized).lexically_normal();
+}
+
+
+int faro::remove_package(const std::string &package_name) {
+  nlohmann::json metadata;
+  std::filesystem::path metadata_path = "/var/lib/faro/installed/" + package_name + ".json";
+  std::ifstream file(metadata_path);
+  
+  if (!file.is_open()) {
+      faro::log::error(package_name + " is not installed");
+      return 1;
+  }
+  try {
+    file >> metadata;
+  } catch (const nlohmann::json::exception& e) {
+    faro::log::error(std::string("Invalid JSON: ") + e.what());
+    return 1;
+  }
+  // Metadata checks ------------------------------------------------
+  if (!metadata.contains("files") || !metadata["files"].is_array() ||
+      !metadata.contains("name")  || !metadata.contains("version"))
+  {
+    faro::log::error("Invalid package metadata");
+    return 1;
+  }
+  for (const auto& entry : metadata["files"]) {
+    if (!entry.is_string()) {
+        faro::log::error("Invalid file entry in package metadata");
+        return 1;
+    }
+  }
+  // -----------------------------------------------------------------
+  
+  faro::log::step("Checking package dependencies");
+  
+  std::unordered_set<std::string> shared;
+
+  // The idea here is to iterate by every json in the directory to later
+  // check if another package is using the same library as the package your about
+  // to uninstall, if it's the case we skip this package and don't remove it to avoid problems.
+  for (const auto& another_package : std::filesystem::directory_iterator("/var/lib/faro/installed")) {
+    if (another_package.path() == metadata_path) {
+      continue; 
+    }
+
+    // Grab the contents of the json we're currently analizing
+    std::ifstream another_file(another_package.path());
+    if (!another_file.is_open()) {
+      faro::log::error("Couldn't open " + another_package.path().string());
+      return 1;
+    }
+    
+    nlohmann::json another_metadata;
+    try {
+      another_file >> another_metadata;
+    } catch (const nlohmann::json::exception& e) {
+      faro::log::error(std::string("Invalid JSON: ") + e.what());
+      return 1;
+    }
+    
+    // Quick validation -------------------------------------------------------------
+    if (!another_metadata.contains("files") || !another_metadata["files"].is_array()) {
+      faro::log::error("Invalid package metadata in file: " + another_package.path().string());
+      faro::log::error("All metadata files in /var/lib/faro/installed/ must be correct!");
+      return 1;
+    }
+    for (const auto& entry : another_metadata["files"]) {
+      if (!entry.is_string()) {
+          faro::log::error("Invalid file entry in package metadata");
+          return 1;
+      }
+    }
+    // -------------------------------------------------------------------------------
+    
+    // Now for every single file entry in metadata file, we go and analize if it's
+    // already mentioned in the current file we're about to remove
+    for (const auto& another_metadata_file : another_metadata["files"]) {
+      for (const auto& current_metadata_file : metadata["files"]) {
+        // If there is a shared library add it to shared vector and display warning
+        if (another_metadata_file == current_metadata_file) {
+          faro::log::warning("Keeping: " + current_metadata_file.get<std::string>() + " (owned by another package) ");
+          shared.insert(current_metadata_file.get<std::string>());
+        }
+      }
+    } 
+  }
+  faro::log::success("Shared file check completed");
+  faro::log::step("Removing package files");
+
+  // Now what's left is to remove every single file in metadata["files"] except
+  // of those in shared vector.
+  size_t package_count = 0;
+  for (const auto& file : metadata["files"]) {
+    if (!shared.contains(file.get<std::string>())) {
+      // Sanitize path still doesn't support symlinks!!!
+      // TODO: Add symlink protection
+      std::filesystem::path target = sanitize_path("/",file.get<std::string>());
+      
+      if (!std::filesystem::remove(target)) {
+        faro::log::error("Couldn't remove " + file.get<std::string>());
+        return 2; // Error code 2: package removal was interrupted mid work
+      }
+      faro::log::success("Removed: /" + file.get<std::string>());
+      package_count++;
+    }
+  }
+  
+  faro::log::success("Removed " + std::to_string(package_count) + " files");
+  faro::log::step("Removing package metadata");
+  
+  // Remember to remove metadata json to avoid future errors
+  if (!std::filesystem::remove(metadata_path)) {
+    faro::log::error("Couldn't remove " + metadata_path.string() + " please do it manually to avoid errors");
+    return 2; 
+  }
+  
+  faro::log::success("Removed metadata");
+  std::cout << "\n";
+  faro::log::success("Package " + metadata["name"].get<std::string>() + "-" + metadata["version"].get<std::string>() + " successfully uninstalled");
+  return 0;
 }
 
 // Function only used in this file

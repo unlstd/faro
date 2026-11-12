@@ -22,5 +22,5 @@ namespace faro {
     Package get_package(std::string path);
     int install_package(Package& package);
     int build_package(Package& package);
-
+    int remove_package(const std::string& package_name);
 }

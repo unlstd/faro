@@ -134,6 +134,24 @@ namespace faro::cli {
         return 0;
     }
 
+    int remove(const std::string& name) {
+        int result = faro::remove_package(name);
+        switch (result) {
+        case 2:
+            faro::log::error(
+            "Package removal failed. The package may be partially uninstalled. "
+            "Check its installation state before retrying."
+            );
+            break;
+        case 1:
+            faro::log::error("There was an error while starting to remove package");
+            break;
+        default:
+            break;
+        }
+        return result;
+    }
+
     int run(const std::vector<std::string>& args) {
         if (args.empty()) {
             print_help();
@@ -152,7 +170,8 @@ namespace faro::cli {
             return 0;
         }
 
-        if (command == "build" || command == "install" || command == "build-install") {
+        if (command == "build" || command == "install" || command == "build-install" ||
+            command == "remove") {
             if (args.size() != 2) { 
                 faro::log::error("Invalid number of arguments for command '" + command + "'.");
                 std::cout << "\n";
@@ -163,8 +182,10 @@ namespace faro::cli {
                 return build(args[1]);
             } else if (command == "install") {
                 return install(args[1]);
+            } else if (command == "build-install") {
+                return build_install(args[1]);
             }
-            return build_install(args[1]);
+            return remove(args[1]);
         }
         
         faro::log::error("Unknown command: " + command);
