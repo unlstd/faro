@@ -1,52 +1,135 @@
 #include <iostream>
+#include <string>
+#include <vector>
 #include "package.hpp"
+#include "logger.hpp"
 
-int main (int argc, char *argv[]) {
-  if (argc < 2) {
-    std::cerr << "Usage: faro <command> [arguments]\n";
-    return 1;
-  }
+namespace faro::cli {
 
-  if (std::string(argv[1]) == "build") {
-    if (argc != 3) {
-        std::cerr << "Usage: faro build <archive>\n";
+    const char* VERSION = "0.2.0";
+
+    void print_help() {
+        std::cout
+            << "Faro Package Manager " << VERSION << "\n\n"
+            << "Usage:\n"
+            << "  faro <command> [arguments]\n\n"
+            << "Commands:\n"
+            << "  build <archive>       Build a package\n"
+            << "  install <archive>     Install a package\n\n"
+            << "Options:\n"
+            << "  -h, --help            Display this help message\n"
+            << "  -v, --version         Display program version\n";
+    }
+
+    void print_version() {
+        std::cout << "Faro Package Manager " << VERSION << '\n';
+    }
+
+    int build(const std::string& path) {
+        faro::log::info("Using Faro to build a package.");
+
+        faro::log::step("Reading package info.");
+
+        faro::Package package = faro::get_package(path);
+
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+
+        faro::log::success("Loaded " + package.name + " (" + package.version + ")");
+
+        if (package.built) {
+          std::cout << "\nThis package has already been built. Proceed anyway? [y/N]: ";
+          char answer;
+          if (!(std::cin >> answer) ||
+              (answer != 'y' && answer != 'Y')) {
+              faro::log::warning("Operation aborted by user.");
+              return 1;
+          }
+        }
+
+        if (faro::build_package(package) != 0) {
+            faro::log::error("Package build failed.");
+            return 1;
+        }
+
+        return 0;
+    }
+
+    int install(const std::string& path) {
+        faro::log::info("Using Faro to install a package.");
+
+        faro::log::step("Reading package info");
+
+        faro::Package package = faro::get_package(path);
+
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+
+        faro::log::success("Loaded " + package.name + " (" + package.version + ")");
+
+        if (!package.built) {
+            faro::log::error("This package has not been built yet. Run 'faro build' first.");
+            return 1;
+        }
+
+        if (faro::install_package(package) != 0) {
+            faro::log::error("Package installation failed.");
+            return 1;
+        }
+
+        return 0;
+    }
+
+    int run(const std::vector<std::string>& args) {
+        if (args.empty()) {
+            print_help();
+            return 1;
+        }
+
+        const std::string command = args[0];
+
+        if (command == "--help" || command == "-h" || command == "help") {
+            print_help();
+            return 0;
+        }
+
+        if (command == "--version" || command == "-v" || command == "version") {
+            print_version();
+            return 0;
+        }
+
+        if (command == "build" || command == "install") {
+            if (args.size() != 2) {
+                faro::log::error("Invalid number of arguments for command '" + command + "'.");
+                std::cout << "\n";
+                print_help();
+                return 1;
+            }
+            if (command == "build") {
+                return build(args[1]);
+            }
+            return install(args[1]);
+        }
+        
+        faro::log::error("Unknown command: " + command);
+        std::cout << "\n";
+        print_help();
+
         return 1;
     }
-    std::string path = argv[2];  std::string temp_folder = "/home/unlstd/INF/CPP/test";
-    std::cout << "Using faro to build the package. \n";
-    std::cout << "Fetching info about the package... \n";
-    faro::Package package = faro::get_package(path);
-    if (package.built == true) {
-      std::cout << std::endl;
-      std::cout << "This package was built, do you want to proceed? [y/n]: ";
-      char answer; 
-      std::cin >> answer;
-      if (answer != 'y') {
-        std::cout << "Aborted. \n"; // It doesn't really matter what user type as long as it isn't y
-        return 1;
-      }
-    }
-    if (faro::build_package(package) != 0) {
-      std::cerr << "[ERR] build_package() did not return 0 \n";
-      return -1;
-    }
-  } else if (std::string(argv[1]) == "install") {
-    if (argc != 3) {
-      std::cerr << "Usage: faro install <archive>\n";
-      return 1;
-    }
-    std::string path = argv[2];  std::string temp_folder = "/home/unlstd/INF/CPP/test";
-    std::cout << "Using faro to install the package. \n";
-    std::cout << "Fetching info about the package... \n";
-    faro::Package package = faro::get_package(path);
-    if (package.built == false) {
-      std::cout << std::endl;
-      std::cout << "This package has not been built yet. Run faro build to build it first.";
-    }
-    if (faro::install_package(package) != 0) {
-      std::cerr << "[ERR] install_package() did not return 0 \n";
-      return -1;
-    }
-  }  
-  return 0;
 }
+
+int main(int argc, char* argv[]) {
+    std::vector<std::string> args;
+
+    for (int i = 1; i < argc; ++i) {
+        args.emplace_back(argv[i]);
+    }
+
+    return faro::cli::run(args);
+}
+

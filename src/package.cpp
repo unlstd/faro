@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include <unistd.h>
+#include "logger.hpp"
 
 const std::string FARO_CACHE = "/var/faro/cache/";
 const std::string FARO_PREFIX = "/usr/";
@@ -26,13 +27,13 @@ faro::Package faro::get_package(std::string path){
     std::string sfile;
    
     if (faro::archive::read_element(faro_metadata, path, sfile) != 0) {
-        std::cerr << "[FAILED] Cannot read metadata\n";
+        faro::log::error("Cannot read metadata");
         return package;
     }
     try {
         metadata = nlohmann::json::parse(sfile);
     } catch (const nlohmann::json::parse_error&) {
-        std::cerr << "[FAILED] Incorrect metadata format\n";
+        faro::log::error("Incorrect metadata format.");
         return package;
     }
 
@@ -42,7 +43,8 @@ faro::Package faro::get_package(std::string path){
         !metadata.contains("description") ||
         !metadata.contains("dependencies")) {
 
-        std::cerr << "[FAILED] Incorrect metadata format\n";
+        
+        faro::log::error("Incorrect metadata format.");
         return package;
     }
     
@@ -55,20 +57,20 @@ faro::Package faro::get_package(std::string path){
     package.libs = metadata["libs"];
     
   } else if (faro::archive::find_element(path, faro_recipe) != 0){
-    std::cerr << "[FAILED] Archive is not a faro package \n";
+    faro::log::error("Archive is not a faro package.");
     return package;
   } else if (faro::archive::find_element(path, faro_recipe) == 0){    
     nlohmann::json recipe;
     std::string sfile;
 
     if (faro::archive::read_element(faro_recipe, path, sfile) != 0) {
-        std::cerr << "[FAILED] Cannot read recipe\n";
+        faro::log::error("Cannot read metadata.");
         return package;
     }
     try {
         recipe = nlohmann::json::parse(sfile);
     } catch (const nlohmann::json::parse_error&) {
-        std::cerr << "[FAILED] Incorrect recipe format\n";
+        faro::log::error("Incorrect recipe format.");
         return package;
     }
 
@@ -78,7 +80,7 @@ faro::Package faro::get_package(std::string path){
         !recipe.contains("description") ||
         !recipe.contains("dependencies")) {
 
-        std::cerr << "[FAILED] Incorrect recipe format\n";
+        faro::log::error("Incorrect recipe format.");
         return package;
     }
     package.name = recipe["name"];
@@ -100,40 +102,62 @@ static std::vector<std::string> get_shared_libraries( const std::string& binary_
 // -----------------------------------------------------------------------------------
 
 int faro::build_package(Package &package) {
+  // Check privilages
+  if (geteuid() != 0) {
+    faro::log::error("Building package requires root privileges. Run with sudo.");
+    return 1;
+  }
+  
   std::string tmp_path = "/tmp/faro/";
   tmp_path.append(package.name);                 // TODO: sanitize the name first
 
+  faro::log::step("Preparing build environment");
+  
+  // Create temp directory for build
   std::string build_path = tmp_path;
   build_path.append("/build/");
   if (!std::filesystem::exists(build_path)) {
     if (!std::filesystem::create_directories(build_path)){
-      std::cerr << "[FAILED] error while creating " << build_path << "\n";
-      return -1;
-    }
-  }
-  
-  if (faro::archive::decompress_archive(package.archive_path, build_path) != 0) {
-    std::cerr << "[FAILED] There was an error while decompressing an archive! \n";
-    std::cout << "Cleaning after broken archive decompression... \n";
-    if (std::filesystem::remove_all(build_path) != 0) {
-      std::cerr << "[FAILED] Couldn't delete temporary archive location \n";
-    }
-    return -1;
-  }
-  if (package.build.empty()) {
-    std::cerr << "[FAILED] No build commands specified\n";
-    return -1;
-  }
-  for (auto command : package.build) {
-    if (faro::posix::exec_command(command, build_path) != 0) {
-      std::cerr << "[FAILED] could not execute build command: \n";
-      for (auto argument : command) {
-        std::cerr << argument << "  ";
-      }
+      faro::log::error("Couldn't create " + build_path);
       return -1;
     }
   }
 
+  faro::log::status("Extracting source archive...");
+  
+  // Decompress archive into newly created directory
+  if (faro::archive::decompress_archive(package.archive_path, build_path) != 0) {
+    faro::log::error("Faro was unable to extract your archive.");
+    faro::log::status("Cleaning after broken archive decompression...");
+    if (std::filesystem::remove_all(build_path) != 0) {
+      faro::log::error("Couldn't delete temporary archive location");
+    }
+    return -1;
+  }
+  if (package.build.empty()) {
+    faro::log::error("No build commands specified in recipe file.");
+    return -1;
+  }
+
+  faro::log::success("Source archive extracted.");
+  faro::log::step("Building package");
+  
+  // Execute every command in the build section in faro_recipe.json
+  for (auto command : package.build) {
+    std::string command_with_args;
+    for (auto argument : command) {
+      command_with_args += argument + " ";
+    }
+    faro::log::status(command_with_args);
+    if (faro::posix::exec_command(command, build_path) != 0) {
+      faro::log::error("Could not execute build command");
+      return -1;
+    }
+    faro::log::success("Task completed");
+  }
+
+  faro::log::step("Installing package into temporary directory");
+  
   // The build not only builds the package but installs it into the temp folder
   // it does so that it can generate the faro_metadata.faro and make install faster.
   std::string destdir_path = tmp_path;
@@ -145,12 +169,12 @@ int faro::build_package(Package &package) {
   if (!std::filesystem::exists(destdir_path)) {
     std::filesystem::remove_all(destdir_path); // Start with clean workspace
     if (!std::filesystem::create_directories(destdir_path)) {
-      std::cerr << "[FAILED] error while creating " << destdir_path << "\n";
+      faro::log::error("An error occured while creating " + destdir_path);
       return -1;
     }
   }
   if (package.install.empty()) {
-    std::cerr << "[FAILED] No install commands specified\n";
+    faro::log::error("No install commands specified in faro recipe");
     return -1;
   }
   
@@ -158,19 +182,23 @@ int faro::build_package(Package &package) {
   // as for now if we stick to this convenction it's good enough. TODO: Change it
   package.install.at(0).push_back(destdir_argument);
   for (auto command : package.install) {
+    std::string command_with_args;
+    for (auto argument : command) {
+      command_with_args += argument + " ";
+    }
+    faro::log::status(command_with_args);
     if (faro::posix::exec_command(command, build_path) != 0) {
-      std::cerr << "[FAILED] could not execute install command: \n";
-      for (auto argument : command) {
-        std::cerr << argument << "  ";
-      }
+      faro::log::error("Could not execute install command");
       return -1;
     }
+    faro::log::success("Command executed");
   }
 
-  // At the end build function should also genereta faro_metadata.json file so it can be
+  faro::log::step("Generating metadata");
+
+  // At the end build function should also generate faro_metadata.json file so it can be
   // later installed into the system. The following code is the implementation of that
   // assumption. 
-
   nlohmann::json metadata;
   std::string metadata_file_path = destdir_path;
   metadata_file_path.append("/faro_metadata.json");
@@ -214,52 +242,58 @@ int faro::build_package(Package &package) {
   metadata_file << metadata.dump(4);
   metadata_file.close();
 
+  faro::log::success("Generated faro_metadata.json file");
+  faro::log::step("Creating package archive");
+  
   // Now we compress the whole destdir folder into compiled tarball so it can be later
   // easily installed into the system.
   try {  
     std::filesystem::create_directories(FARO_CACHE);
   } catch (std::filesystem::filesystem_error& e) {
-    std::cerr << "[FAILED] There was an fatal error while creating folder: " << e.what() << " ERR CODE: " << e.code() << "\n";
+    faro::log::error("There was an error while creating folder: " + (std::string)e.what());
     return 1;
   }
   
   if (faro::archive::compress_folder(destdir_path, compiled_archive_path) != 0) {
-    std::cerr << "[FAILED] Could not compress folder\n";
+    faro::log::error("Could not compress folder");
     return 1;
-  }  
+  }
+  faro::log::success("Package archive created");
 
+  faro::log::success("Package built successfully!");
   return 0;
 };
 
 // Installing packages in this case is just copied precompiled .tar.xz into filesystem
 int faro::install_package(Package &package) {
   if (package.built == false) {
-    std::cerr << "[FAILED] Not built package cannot be installed! \n";
+    faro::log::error("Not built package cannot be installed!");
     return 1;
   }
 
   // Check privilages
   if (geteuid() != 0) {
-    std::cerr << "[FAILED] Installation requires root privileges. Run with sudo.\n";
+    faro::log::error("Installation requires root privileges. Run with sudo.");
     return 1;
   }
 
-  std::cout << "Installing " << package.name << " (" << package.version << ")...\n";
+  faro::log::step("Installing " + package.name + " (" + package.version + ")");
 
   std::string temp_path = "/tmp/faro/";
   temp_path += package.name + "/" + "temp";
   if (!std::filesystem::exists(temp_path)) {
     std::filesystem::remove_all(temp_path); // Start with clean workspace
     if (!std::filesystem::create_directories(temp_path)) {
-      std::cerr << "[FAILED] Faro couldn't create temp file for an archive \n";
+      faro::log::error("Faro couldn't create temp file for an archive");
       return -1;
     }
   }
+  
   // So we don't have the function to extract only specific directory or file
   // from an archive so we decompress everything and copy only selected folder
   // TODO: Implement an option to decompress only selected folders.
   if (faro::archive::decompress_archive(package.archive_path, temp_path) != 0) {
-    std::cerr << "[ERR] Could extract archive to a temp directory\n";
+    faro::log::error("Couldn't extract archive to a temp directory");
     return 1;
   }
 
@@ -268,7 +302,7 @@ int faro::install_package(Package &package) {
   try {
     std::filesystem::copy(usr_in_path, FARO_PREFIX, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
   } catch (std::filesystem::filesystem_error& e){
-    std::cerr << "[FAILED] Fatal error occured while copying the package: " << e.what() << "ERR CODE: " << e.code() << "\n";
+    faro::log::error("Fatal error occured while copying the package:" + (std::string)e.what());
     return 1;
   }
   
@@ -283,17 +317,17 @@ int faro::install_package(Package &package) {
   if (faro::archive::read_element("faro_metadata.json", package.archive_path, metadata_content) == 0) {
       std::ofstream db_file(db_file_path);
       if (!db_file) {
-        std::cerr << "[FAILED] Could not save faro_metadata.json file!";
+        faro::log::error("Could not save faro_metadata.json file!");
         return 1;
       }
       db_file << metadata_content;
       db_file.close();
   } else {
-      std::cerr << "[WARNING] Package installed, but failed to save metadata database.\n";
+      faro::log::warning("Package installed, but failed to save metadata database.");
       return 1;
   }
 
-  std::cout << "[SUCCESS] Package " << package.name << " successfully installed!\n";
+  faro::log::success("Package " + package.name + " successfully installed!");
   std::filesystem::remove_all(temp_path);
   return 0;
 

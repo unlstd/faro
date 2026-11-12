@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <fstream>
+#include "logger.hpp"
 
 // ---------------------------------------------------
 // This file provides simple interface with libarchive
@@ -161,28 +162,28 @@ int faro::archive::decompress_archive(std::string &archive, const std::string &p
       auto output_path = sanitize_path(path, archive_entry_pathname(entry));
       archive_entry_set_pathname(entry, output_path.c_str());
     } catch (const std::exception& e) {
-      std::cerr << "[FAILED] " << e.what() << '\n';
-      result = 1;
+      faro::log::error((std::string)e.what());
+      return 1;
     }
     
     if (r < ARCHIVE_OK)
-      std::cout << "[FAILED] " << archive_error_string(a) << "\n";
+      faro::log::error(archive_error_string(a));
     if (r < ARCHIVE_WARN)
       result = 1;
     
     r = archive_write_header(ext, entry);
     if (r < ARCHIVE_OK)
-      std::cout << "[FAILED] " << archive_error_string(ext) << "\n";
+      faro::log::error(archive_error_string(ext));
     else if (archive_entry_size(entry) > 0) {
       r = copy_data(a, ext);
       if (r < ARCHIVE_OK)
-        std::cout << "[FAILED] " << archive_error_string(ext) << "\n";
+        faro::log::error(archive_error_string(ext));
       if (r < ARCHIVE_WARN)
         result = 1;
     }
     r = archive_write_finish_entry(ext);
     if (r < ARCHIVE_OK)
-       std::cout << "[FAILED] " << archive_error_string(ext) << "\n";
+       faro::log::error(archive_error_string(ext));
     if (r < ARCHIVE_WARN)
       result = 1;
   }
@@ -207,8 +208,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
   std::filesystem::path base(path);
   if (!std::filesystem::is_directory(base)) {
     std::cerr << "[FAILED] Not a directory: " << path << "\n";
-    result = 1;
-    return result;
+    return 1;
   }
 
   // Setup output archive: tar format, compressed with xz (.tar.xz)
@@ -221,10 +221,10 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
 
   r = archive_write_open_filename(a, archive.c_str());
   if (r != ARCHIVE_OK) {
-    std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
+    faro::log::error(archive_error_string(a));
     archive_write_free(a);
     archive_read_free(disk);
-    result = 1;
+    return 1;
   }
 
   entry = archive_entry_new();
@@ -239,7 +239,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
     // We copy metadata from file
     r = archive_read_disk_entry_from_file(disk, entry, -1, NULL);
     if (r < ARCHIVE_OK)
-      std::cerr << "[FAILED] " << archive_error_string(disk) << "\n";
+      faro::log::error(archive_error_string(a));
     if (r < ARCHIVE_WARN) {
       result = 1;
       break;
@@ -247,7 +247,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
 
     r = archive_write_header(a, entry);
     if (r < ARCHIVE_OK)
-      std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
+      faro::log::error(archive_error_string(a));
     if (r < ARCHIVE_WARN) {
       result = 1;
       break;
@@ -262,7 +262,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
       // so we also check gcount() to not lose it
       while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
         if (archive_write_data(a, buffer, file.gcount()) < 0) {
-          std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
+          faro::log::error(archive_error_string(a));
           result = 1;
           break;
         }
@@ -278,7 +278,7 @@ int faro::archive::compress_folder(const std::string &path, const std::string &a
   archive_read_free(disk);
   r = archive_write_close(a);
   if (r < ARCHIVE_OK) {
-    std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
+    faro::log::error(archive_error_string(a));
     result = 1;
   }
   archive_write_free(a);
@@ -320,7 +320,7 @@ int faro::archive::read_element(const std::string& path, const std::string& arch
 
       // n == 0 means end of the file, n < 0 means error
       if (n < 0) {
-        std::cerr << "[FAILED] " << archive_error_string(a) << "\n";
+        faro::log::error(archive_error_string(a));
         content.clear();
       } else {
         result = 0;
