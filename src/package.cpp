@@ -22,11 +22,18 @@ faro::Package faro::get_package(std::string path){
   const std::string faro_metadata = "faro_metadata.json";  
   const std::string faro_recipe = "faro_recipe.json";
 
-  if (faro::archive::find_element(path, faro_metadata) == 0){   
+  // Check is path is path or just package name.
+  std::string real_path = path;
+  if (!std::filesystem::exists(path)) {
+    real_path = FARO_CACHE;
+    real_path += path + ".tar.xz"; 
+  }
+  
+  if (faro::archive::find_element(real_path, faro_metadata) == 0){   
     nlohmann::json metadata;
     std::string sfile;
    
-    if (faro::archive::read_element(faro_metadata, path, sfile) != 0) {
+    if (faro::archive::read_element(faro_metadata, real_path, sfile) != 0) {
         faro::log::error("Cannot read metadata");
         return package;
     }
@@ -51,19 +58,19 @@ faro::Package faro::get_package(std::string path){
     package.name = metadata["name"];
     package.version = metadata["version"];
     package.description = metadata["description"];
-    package.archive_path = path;
+    package.archive_path = real_path;
     package.built = true;
     package.dependencies = metadata["dependencies"];
     package.libs = metadata["libs"];
     
-  } else if (faro::archive::find_element(path, faro_recipe) != 0){
+  } else if (faro::archive::find_element(real_path, faro_recipe) != 0){
     faro::log::error("Archive is not a faro package.");
     return package;
-  } else if (faro::archive::find_element(path, faro_recipe) == 0){    
+  } else if (faro::archive::find_element(real_path, faro_recipe) == 0){    
     nlohmann::json recipe;
     std::string sfile;
 
-    if (faro::archive::read_element(faro_recipe, path, sfile) != 0) {
+    if (faro::archive::read_element(faro_recipe, real_path, sfile) != 0) {
         faro::log::error("Cannot read metadata.");
         return package;
     }
@@ -87,7 +94,7 @@ faro::Package faro::get_package(std::string path){
     package.version = recipe["version"];
     package.description = recipe["description"];
     package.dependencies = recipe["dependencies"];
-    package.archive_path = path;
+    package.archive_path = real_path;
     package.built = false;
     package.build = recipe["build"];
     package.install = recipe["install"];
