@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <unordered_set>
 #include "logger.hpp"
+#include <iomanip>
 
 const std::string FARO_CACHE = "/var/faro/cache/";
 const std::string FARO_PREFIX = "/usr/";
@@ -473,6 +474,48 @@ int faro::remove_package(const std::string &package_name) {
   faro::log::success("Removed metadata");
   std::cout << "\n";
   faro::log::success("Package " + metadata["name"].get<std::string>() + "-" + metadata["version"].get<std::string>() + " successfully uninstalled");
+  return 0;
+}
+
+int faro::list_packages() {
+  nlohmann::json metadata;
+  std::filesystem::path metadata_path = "/var/lib/faro/installed/";
+  std::cout << "Installed packages: \n\n";
+  std::cout << std::left
+          << std::setw(15) << "NAME"
+          << std::setw(12) << "VERSION"
+          << "DESCRIPTION\n";
+
+  size_t packages_count{0};
+  for (auto& metadata_path : std::filesystem::directory_iterator(metadata_path)) {
+    std::ifstream file(metadata_path.path());
+  
+    if (!file.is_open()) {
+        faro::log::warning(metadata_path.path().string() + " can't be opened");
+        continue;
+    }
+    try {
+      file >> metadata;
+    } catch (const nlohmann::json::exception& e) {
+      faro::log::error(std::string("Invalid JSON: ") + e.what());
+      return 1;
+    }
+    // Metadata checks ------------------------------------------------
+    if (!metadata.contains("name")  || !metadata.contains("version") ||
+        !metadata.contains("description")) 
+    {
+      faro::log::error("Invalid package metadata");
+      return 1;
+    }
+    packages_count++;
+    std::cout << std::left
+          << std::setw(15) << metadata["name"].get<std::string>()
+          << std::setw(12) << metadata["version"].get<std::string>()
+          << metadata["description"].get<std::string>()
+          << "\n";
+  }
+  
+  std::cout << "\nA total of " + std::to_string(packages_count) << " packages installed \n";
   return 0;
 }
 

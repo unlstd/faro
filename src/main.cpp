@@ -152,6 +152,10 @@ namespace faro::cli {
         return result;
     }
 
+    int list() {
+        return faro::list_packages();
+    }
+
     int run(const std::vector<std::string>& args) {
         if (args.empty()) {
             print_help();
@@ -168,6 +172,10 @@ namespace faro::cli {
         if (command == "--version" || command == "-v" || command == "version") {
             print_version();
             return 0;
+        }
+
+        if (command == "list") {
+            return list();
         }
 
         if (command == "build" || command == "install" || command == "build-install" ||
