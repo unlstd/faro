@@ -4,9 +4,11 @@
 #include "package.hpp"
 #include "logger.hpp"
 
+const std::string FARO_CACHE = "/var/faro/cache/";
+
 namespace faro::cli {
 
-    const char* VERSION = "0.2.0";
+    const char* VERSION = "0.3.0";
 
     void print_help() {
         std::cout
@@ -14,11 +16,12 @@ namespace faro::cli {
             << "Usage:\n"
             << "  faro <command> [arguments]\n\n"
             << "Commands:\n"
-            << "  build <archive>       Build a package\n"
-            << "  install <archive>     Install a package\n\n"
+            << "  build <archive>          Build a package\n"
+            << "  install <archive>        Install a package\n"
+            << "  build-install <archive>  Build and install a package\n\n"
             << "Options:\n"
-            << "  -h, --help            Display this help message\n"
-            << "  -v, --version         Display program version\n";
+            << "  -h, --help               Display this help message\n"
+            << "  -v, --version            Display program version\n";
     }
 
     void print_version() {
@@ -84,6 +87,53 @@ namespace faro::cli {
         return 0;
     }
 
+    int build_install(const std::string& path) {     
+        faro::log::info("Using Faro to build and install a package.");
+        faro::log::step("Reading package info.");
+
+        faro::Package package = faro::get_package(path);
+
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+
+        faro::log::success("Loaded " + package.name + " (" + package.version + ")");
+
+        if (package.built) {
+          std::cout << "\nThis package has already been built. Proceed anyway? [y/N]: ";
+          char answer;
+          if (!(std::cin >> answer) ||
+              (answer != 'y' && answer != 'Y')) {
+              faro::log::warning("Operation aborted by user.");
+              return 1;
+          }
+        }
+
+        if (faro::build_package(package) != 0) {
+            faro::log::error("Package build failed.");
+            return 1;
+        }
+
+        std::string package_path = FARO_CACHE + package.name + "-" + package.version + ".tar.xz";
+        faro::log::step("Reading built info");
+        package = faro::get_package(package_path);
+
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+
+        faro::log::success("Loaded " + package.name + " (" + package.version + ")");
+
+        if (faro::install_package(package) != 0) {
+            faro::log::error("Package installation failed.");
+            return 1;
+        }
+        
+        return 0;
+    }
+
     int run(const std::vector<std::string>& args) {
         if (args.empty()) {
             print_help();
@@ -102,8 +152,8 @@ namespace faro::cli {
             return 0;
         }
 
-        if (command == "build" || command == "install") {
-            if (args.size() != 2) {
+        if (command == "build" || command == "install" || command == "build-install") {
+            if (args.size() != 2) { 
                 faro::log::error("Invalid number of arguments for command '" + command + "'.");
                 std::cout << "\n";
                 print_help();
@@ -111,8 +161,10 @@ namespace faro::cli {
             }
             if (command == "build") {
                 return build(args[1]);
+            } else if (command == "install") {
+                return install(args[1]);
             }
-            return install(args[1]);
+            return build_install(args[1]);
         }
         
         faro::log::error("Unknown command: " + command);
