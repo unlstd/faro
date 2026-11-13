@@ -106,6 +106,42 @@ faro::Package faro::get_package(std::string path){
   return package;
 }
 
+int faro::register_package(const Package& package) { 
+  std::string installed_db_dir = "/var/lib/faro/installed/";
+  std::filesystem::create_directories(installed_db_dir);
+  std::string db_file_path = installed_db_dir + package.name + ".json";
+  
+  if (std::filesystem::exists(db_file_path)) {
+    faro::log::info("You're trying to override existing entry, do you want to proceed? [Y/n]: ");
+    char result;
+    if (!(std::cin >> result) || (result != 'Y' && result != 'y')) {
+      faro::log::error("Operation aborted by user");
+      return 1;
+    }
+  }
+    
+  nlohmann::json metadata_content;
+  std::ofstream db_file(db_file_path);
+  if (!db_file) {
+    faro::log::error("Could not save faro_metadata.json file!");
+    return 1;
+  }
+
+  metadata_content["name"] = package.name;
+  metadata_content["version"] = package.version;
+  metadata_content["archive_path"] = "";
+  metadata_content["built"] = true;
+  metadata_content["dependencies"] = {};
+  metadata_content["description"] = package.description;
+  metadata_content["files"] = {};
+  metadata_content["libs"] = {};
+  metadata_content["external"] = true;
+  
+  db_file << metadata_content;
+  db_file.close();
+  return 0;
+}
+
 // This function is defiend later on but needs to be used in the next function
 // that is why we make dummy definition here.
 static std::vector<std::string> get_shared_libraries( const std::string& binary_path);
@@ -287,6 +323,23 @@ int faro::install_package(Package &package) {
     return 1;
   }
 
+  faro::log::step("Checking dependencies");
+  for (auto& package_dependencie : package.dependencies) {
+    faro::log::status("Searching for: " + package_dependencie);
+    bool found = false;
+    for (auto& package_file : std::filesystem::directory_iterator("/var/lib/faro/installed/")) {
+      if (package_file.path().filename() == package_dependencie + ".json") {
+        faro::log::success(package_dependencie + " was found!");
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      faro::log::error("There are missing dependencies, aborting!\n");
+      return 1;
+    }
+  }
+  
   faro::log::step("Installing " + package.name + " (" + package.version + ")");
 
   std::string temp_path = "/tmp/faro/";
@@ -386,6 +439,10 @@ int faro::remove_package(const std::string &package_name) {
         faro::log::error("Invalid file entry in package metadata");
         return 1;
     }
+  }
+  if (metadata.contains("external") && metadata["external"] == true) {
+    faro::log::error("This package as it is an external one, cannot be removed");
+    return 1;
   }
   // -----------------------------------------------------------------
   
@@ -550,6 +607,20 @@ int faro::package_info(Package& package) {
 
   std::cout << "Status:\n" << package.built << "\n";
   
+  return 0;
+}
+
+// We assume that package given to this function as a parameter is indeed
+// correct/not broken.
+int faro::upgrade_package(Package &package) {  
+  if (remove_package(package.name) != 0 ) {
+    faro::log::error("There was an unexpected error while removing old package");
+    return 1;
+  }
+  if (install_package(package) != 0) {
+    faro::log::error("Faro was unable to install new version of package");
+    return 1;
+  };
   return 0;
 }
 

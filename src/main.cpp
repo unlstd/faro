@@ -18,7 +18,9 @@ namespace faro::cli {
             << "Commands:\n"
             << "  build <archive>          Build a package\n"
             << "  install <archive>        Install a package\n"
-            << "  build-install <archive>  Build and install a package\n\n"
+            << "  build-install <archive>  Build and install a package\n"
+            << "  list                     List every installed package\n"
+            << "  info <archive>           Get info about built package\n\n"
             << "Options:\n"
             << "  -h, --help               Display this help message\n"
             << "  -v, --version            Display program version\n";
@@ -152,8 +154,25 @@ namespace faro::cli {
         return result;
     }
 
-    int list() {
-        return faro::list_packages();
+    int upgrade(const std::string& path) {
+        faro::Package package = faro::get_package(path);
+        if (package.name.empty()) {
+            faro::log::error("Could not load package information.");
+            return 1;
+        }
+        return faro::upgrade_package(package);
+    }
+
+    int register_external_package(const std::string& name, const std::string& version, const std::string& description = "") {
+        Package package;
+        package.name = name;
+        package.version = version;
+        package.description = description;
+        if (faro::register_package(package) != 0) {
+            faro::log::error("Couldn't register external package!");
+            return 1;
+        }
+        return 0;        
     }
 
     int info(const std::string& path) {
@@ -185,11 +204,23 @@ namespace faro::cli {
         }
 
         if (command == "list") {
-            return list();
+            return faro::list_packages();
         }
 
+        if (command == "register") {
+            if (args.size() < 3 or args.size() > 4) {
+                faro::log::error("Invalid number of arguments!\n");
+                print_help();
+                return 1;
+            }
+            if (args.size() == 4) {
+                return register_external_package(args[1], args[2], args[3]);
+            }
+            return register_external_package(args[1], args[2]);
+        }
+        
         if (command == "build" || command == "install" || command == "build-install" ||
-            command == "remove" || command == "info") {
+            command == "remove" || command == "info" || command == "upgrade") {
             if (args.size() != 2) { 
                 faro::log::error("Invalid number of arguments for command '" + command + "'.");
                 std::cout << "\n";
@@ -204,8 +235,10 @@ namespace faro::cli {
                 return build_install(args[1]);
             } else if (command == "remove") {
                 return remove(args[1]);
+            } else if (command == "info") {
+                return info(args[1]);
             }
-            return info(args[1]);
+            return upgrade(args[1]);
         }
         
         faro::log::error("Unknown command: " + command);
